@@ -40,7 +40,9 @@ const User = mongoose.model('User', userSchema);
 
 app.post('/register', async (req, res) => {
   const { email } = req.body;
+  console.log('Register request received for email:', email);
   if (!email) {
+    console.log('Email is required');
     return res.status(400).json({ error: 'Email is required' });
   }
 
@@ -48,6 +50,7 @@ app.post('/register', async (req, res) => {
   if (!user) {
     user = new User({ email, credentials: [] });
   }
+  console.log('User found or created:', user);
 
   const userIdBuffer = new TextEncoder().encode(email);
   const options = generateRegistrationOptions({
@@ -60,22 +63,28 @@ app.post('/register', async (req, res) => {
 
   user.currentChallenge = options.challenge;
   await user.save();
+  console.log('Registration options generated and user updated:', options);
 
   return res.json(options);
 });
 
 app.post('/register/verify', async (req, res) => {
   const { email, attestation } = req.body;
+  console.log('Register verify request received for email:', email);
   if (!email || !attestation) {
+    console.log('Email and attestation are required');
     return res.status(400).json({ error: 'Email and attestation are required' });
   }
 
   const user = await User.findOne({ email });
   if (!user) {
+    console.log('User not found');
     return res.status(400).json({ error: 'User not found' });
   }
+  console.log('User found:', user);
 
   const expectedChallenge = user.currentChallenge;
+  console.log('Expected challenge:', expectedChallenge);
 
   try {
     const { verified, registrationInfo } = await verifyRegistrationResponse({
@@ -87,30 +96,37 @@ app.post('/register/verify', async (req, res) => {
 
     if (verified) {
       user.credentials.push({
-        credentialID: registrationInfo.credentialID,
-        publicKey: registrationInfo.credentialPublicKey,
+        credentialID: base64url.encode(registrationInfo.credentialID),
+        publicKey: base64url.encode(registrationInfo.credentialPublicKey),
         counter: registrationInfo.counter,
       });
       await user.save();
+      console.log('Registration successful and user updated:', user);
       return res.json({ message: 'Registration successful' });
     }
 
+    console.log('Verification failed');
     return res.status(400).json({ error: 'Verification failed' });
   } catch (error) {
+    console.log('Error during verification:', error.message);
     return res.status(400).json({ error: error.message });
   }
 });
 
 app.post('/authenticate', async (req, res) => {
   const { email } = req.body;
+  console.log('Authenticate request received for email:', email);
   if (!email) {
+    console.log('Email is required');
     return res.status(400).json({ error: 'Email is required' });
   }
 
   const user = await User.findOne({ email });
   if (!user || user.credentials.length === 0) {
+    console.log('No registered credentials found for user');
     return res.status(400).json({ error: 'No registered credentials found for user' });
   }
+  console.log('User found:', user);
 
   const options = generateAuthenticationOptions({
     allowCredentials: user.credentials.map(cred => ({
@@ -124,27 +140,34 @@ app.post('/authenticate', async (req, res) => {
 
   user.currentChallenge = options.challenge;
   await user.save();
+  console.log('Authentication options generated and user updated:', options);
 
   return res.json(options);
 });
 
 app.post('/authenticate/verify', async (req, res) => {
   const { email, assertion } = req.body;
+  console.log('Authenticate verify request received for email:', email);
   if (!email || !assertion) {
+    console.log('Email and assertion are required');
     return res.status(400).json({ error: 'Email and assertion are required' });
   }
 
   const user = await User.findOne({ email });
   if (!user) {
+    console.log('User not found');
     return res.status(400).json({ error: 'User not found' });
   }
+  console.log('User found:', user);
 
   const expectedChallenge = user.currentChallenge;
-  const credential = user.credentials.find(cred => cred.credentialID === assertion.id);
-
+  console.log('Expected challenge:', expectedChallenge);
+  const credential = user.credentials.find(cred => cred.credentialID === base64url.encode(assertion.id));
   if (!credential) {
+    console.log('Credential not found');
     return res.status(400).json({ error: 'Credential not found' });
   }
+  console.log('Credential found:', credential);
 
   try {
     const { verified, authenticationInfo } = await verifyAuthenticationResponse({
@@ -153,8 +176,8 @@ app.post('/authenticate/verify', async (req, res) => {
       expectedOrigin: ORIGIN,
       expectedRPID: RP_ID,
       authenticator: {
-        credentialPublicKey: credential.publicKey,
-        credentialID: credential.credentialID,
+        credentialPublicKey: base64url.toBuffer(credential.publicKey),
+        credentialID: base64url.toBuffer(credential.credentialID),
         counter: credential.counter,
       },
     });
@@ -162,11 +185,14 @@ app.post('/authenticate/verify', async (req, res) => {
     if (verified) {
       credential.counter = authenticationInfo.newCounter;
       await user.save();
+      console.log('Authentication successful and user updated:', user);
       return res.json({ message: 'Authentication successful' });
     }
 
+    console.log('Verification failed');
     return res.status(400).json({ error: 'Verification failed' });
   } catch (error) {
+    console.log('Error during verification:', error.message);
     return res.status(400).json({ error: error.message });
   }
 });

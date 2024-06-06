@@ -1,90 +1,173 @@
 const express = require('express');
-const u2f = require('u2f');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const base64url = require('base64url');
+const mongoose = require('mongoose');
+const {
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+} = require('@simplewebauthn/server');
 
 const app = express();
-const APP_ID = 'https://yubikeyfe.vercel.app'; // Your frontend URL
+const RP_NAME = '';
+const RP_ID = 'yubikeyfe.vercel.app'; // Replace with your actual domain
+const ORIGIN = 'https://yubikeyfe.vercel.app'; // Replace with your frontend URL
 
 app.use(cors());
 app.use(bodyParser.json());
 
-// In-memory user store (replace with a database in production)
-const users = {};
+// MongoDB connection
+const mongoUri = 'mongodb+srv://gowtham:none@cluster0.jlft8pp.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
+mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => console.log('MongoDB connection error: ', err));
 
-app.post('/register', (req, res) => {
+const userSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true },
+  credentials: [
+    {
+      credentialID: String,
+      publicKey: String,
+      counter: Number,
+    },
+  ],
+  currentChallenge: String,
+});
+
+const User = mongoose.model('User', userSchema);
+
+app.post('/register', async (req, res) => {
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ error: 'Email is required' });
   }
 
-  const registrationRequest = u2f.request(APP_ID);
-  users[email] = { registrationRequest, keys: [] };
-  return res.json(registrationRequest);
-});
-
-app.post('/register/verify', (req, res) => {
-  const { email, registrationResponse } = req.body;
-  if (!email || !registrationResponse) {
-    return res.status(400).json({ error: 'Email and registration response are required' });
+  let user = await User.findOne({ email });
+  if (!user) {
+    user = new User({ email, credentials: [] });
   }
 
-  const user = users[email];
+  const options = generateRegistrationOptions({
+    rpName: RP_NAME,
+    rpID: RP_ID,
+    userID: email,
+    userName: email,
+    attestationType: 'direct',
+  });
+
+  user.currentChallenge = options.challenge;
+  await user.save();
+
+  return res.json(options);
+});
+
+app.post('/register/verify', async (req, res) => {
+  const { email, attestation } = req.body;
+  if (!email || !attestation) {
+    return res.status(400).json({ error: 'Email and attestation are required' });
+  }
+
+  const user = await User.findOne({ email });
   if (!user) {
     return res.status(400).json({ error: 'User not found' });
   }
 
-  const result = u2f.checkRegistration(user.registrationRequest, registrationResponse);
-  if (result.successful) {
-    user.keys.push({
-      publicKey: result.publicKey,
-      keyHandle: result.keyHandle,
-    });
-    return res.json({ message: 'Registration successful' });
-  }
+  const expectedChallenge = user.currentChallenge;
 
-  return res.status(400).json({ error: result.errorMessage });
+  try {
+    const { verified, registrationInfo } = await verifyRegistrationResponse({
+      credential: attestation,
+      expectedChallenge: `${expectedChallenge}`,
+      expectedOrigin: ORIGIN,
+      expectedRPID: RP_ID,
+    });
+
+    if (verified) {
+      user.credentials.push({
+        credentialID: registrationInfo.credentialID,
+        publicKey: registrationInfo.credentialPublicKey,
+        counter: registrationInfo.counter,
+      });
+      await user.save();
+      return res.json({ message: 'Registration successful' });
+    }
+
+    return res.status(400).json({ error: 'Verification failed' });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
 });
 
-app.post('/authenticate', (req, res) => {
+app.post('/authenticate', async (req, res) => {
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ error: 'Email is required' });
   }
 
-  const user = users[email];
-  if (!user || user.keys.length === 0) {
-    return res.status(400).json({ error: 'No registered keys found for user' });
+  const user = await User.findOne({ email });
+  if (!user || user.credentials.length === 0) {
+    return res.status(400).json({ error: 'No registered credentials found for user' });
   }
 
-  const keyHandles = user.keys.map(key => key.keyHandle);
-  const authRequest = u2f.request(APP_ID, keyHandles);
-  users[email].authRequest = authRequest;
-  return res.json(authRequest);
+  const options = generateAuthenticationOptions({
+    allowCredentials: user.credentials.map(cred => ({
+      id: base64url.toBuffer(cred.credentialID),
+      type: 'public-key',
+      transports: ['usb', 'ble', 'nfc', 'internal'],
+    })),
+    userVerification: 'preferred',
+    rpID: RP_ID,
+  });
+
+  user.currentChallenge = options.challenge;
+  await user.save();
+
+  return res.json(options);
 });
 
-app.post('/authenticate/verify', (req, res) => {
-  const { email, authResponse } = req.body;
-  if (!email || !authResponse) {
-    return res.status(400).json({ error: 'Email and authentication response are required' });
+app.post('/authenticate/verify', async (req, res) => {
+  const { email, assertion } = req.body;
+  if (!email || !assertion) {
+    return res.status(400).json({ error: 'Email and assertion are required' });
   }
 
-  const user = users[email];
-  if (!user || !user.authRequest) {
-    return res.status(400).json({ error: 'Authentication request not found' });
+  const user = await User.findOne({ email });
+  if (!user) {
+    return res.status(400).json({ error: 'User not found' });
   }
 
-  const key = user.keys.find(key => key.keyHandle === authResponse.keyHandle);
-  if (!key) {
-    return res.status(400).json({ error: 'Key handle not found' });
+  const expectedChallenge = user.currentChallenge;
+  const credential = user.credentials.find(cred => cred.credentialID === assertion.id);
+
+  if (!credential) {
+    return res.status(400).json({ error: 'Credential not found' });
   }
 
-  const result = u2f.checkSignature(user.authRequest, authResponse, key.publicKey);
-  if (result.successful) {
-    return res.json({ message: 'Authentication successful' });
-  }
+  try {
+    const { verified, authenticationInfo } = await verifyAuthenticationResponse({
+      credential: assertion,
+      expectedChallenge: `${expectedChallenge}`,
+      expectedOrigin: ORIGIN,
+      expectedRPID: RP_ID,
+      authenticator: {
+        credentialPublicKey: credential.publicKey,
+        credentialID: credential.credentialID,
+        counter: credential.counter,
+      },
+    });
 
-  return res.status(400).json({ error: result.errorMessage });
+    if (verified) {
+      credential.counter = authenticationInfo.newCounter;
+      await user.save();
+      return res.json({ message: 'Authentication successful' });
+    }
+
+    return res.status(400).json({ error: 'Verification failed' });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
 });
 
 app.listen(3001, () => {

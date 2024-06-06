@@ -1,8 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const base64url = require('base64url');
 const mongoose = require('mongoose');
+const base64url = require('base64url');
 const {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -11,7 +11,7 @@ const {
 } = require('@simplewebauthn/server');
 
 const app = express();
-const RP_NAME = '';
+const RP_NAME = 'Your App Name';
 const RP_ID = 'yubikeyfe.vercel.app'; // Replace with your actual domain
 const ORIGIN = 'https://yubikeyfe.vercel.app'; // Replace with your frontend URL
 
@@ -49,10 +49,11 @@ app.post('/register', async (req, res) => {
     user = new User({ email, credentials: [] });
   }
 
+  const userIdBuffer = new TextEncoder().encode(email);
   const options = generateRegistrationOptions({
     rpName: RP_NAME,
     rpID: RP_ID,
-    userID: email,
+    userID: userIdBuffer,
     userName: email,
     attestationType: 'direct',
   });

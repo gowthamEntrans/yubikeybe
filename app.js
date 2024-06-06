@@ -4,15 +4,15 @@ const u2f = require('u2f');
 const cors = require('cors');
 
 const app = express();
-const APP_ID = 'https://your-website.com'; // Replace with your HTTPS URL
+const APP_ID = 'https://yubikeybe.onrender.com'; // Replace with your HTTPS URL
 
 app.use(express.json());
 app.use(session({ secret: 'your-secret', resave: false, saveUninitialized: true }));
-app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
+app.use(cors({ origin: 'http://localhost:3000'||"https://yubikeybe.onrender.com", credentials: true }));
 
 // Hardcoded user
 const hardcodedUser = {
-  username: 'testuser',
+  username: 'g',
   password: '123', // Never hardcode passwords in production, use environment variables or secure storage
   keys: [],
 };

@@ -11,9 +11,10 @@ mongoose.connect('mongodb+srv://gowtham:bbvK5vU33zIDXAtY@cluster0.jlft8pp.mongod
 
 app.use(bodyParser.json());
 app.use(session({
-    secret: 'your-secret',
+    secret: 'your-secret-key', 
     resave: false,
-    saveUninitialized: true
+    saveUninitialized: true,
+    cookie: { secure: true } // Set secure to true if using HTTPS
 }));
 
 app.use('/auth', authRoutes);

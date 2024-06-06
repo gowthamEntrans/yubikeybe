@@ -24,11 +24,12 @@ router.post('/registerResponse', async (req, res) => {
     try {
         const { username, registerResponse } = req.body;
         const registerRequest = req.session.registerRequest;
-        console.log('Register Request:', registerRequest);
-        console.log('Register Response:', registerResponse);
+
+        if (!registerRequest) {
+            return res.status(400).send('No registration request found');
+        }
 
         const registration = u2f.checkRegistration(registerRequest, registerResponse);
-        console.log('Registration Result:', registration);
 
         if (registration.successful) {
             await User.findOneAndUpdate(
@@ -67,9 +68,18 @@ router.post('/signResponse', async (req, res) => {
     try {
         const { username, signResponse } = req.body;
         const signRequest = req.session.signRequest;
-        const user = await User.findOne({ username });
 
+        if (!signRequest) {
+            return res.status(400).send('No sign request found');
+        }
+
+        const user = await User.findOne({ username });
         const device = user.devices.find(device => device.keyHandle === signResponse.keyHandle);
+
+        if (!device) {
+            return res.status(400).send('Device not found');
+        }
+
         const signCheck = u2f.checkSignature(signRequest, signResponse, device.publicKey);
 
         if (signCheck.successful) {

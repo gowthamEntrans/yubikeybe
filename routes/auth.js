@@ -11,7 +11,7 @@ router.post('/registerRequest', async (req, res) => {
             user = new User({ username, devices: [] });
             await user.save();
         }
-        const registerRequest = u2f.request('http://localhost:3000/');
+        const registerRequest = u2f.request('https://yubikeybe.onrender.com');
         req.session.registerRequest = registerRequest;
         res.json(registerRequest);
     } catch (error) {
@@ -51,7 +51,7 @@ router.post('/signRequest', async (req, res) => {
         const user = await User.findOne({ username });
 
         if (user && user.devices.length > 0) {
-            const signRequest = u2f.request('https://yourdomain.com', user.devices.map(device => device.keyHandle));
+            const signRequest = u2f.request('https://yubikeybe.onrender.com', user.devices.map(device => device.keyHandle));
             req.session.signRequest = signRequest;
             res.json(signRequest);
         } else {

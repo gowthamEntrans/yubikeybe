@@ -8,7 +8,7 @@ const APP_ID = 'https://yubikeyfe.vercel.app/'; // Replace with your HTTPS URL
 
 app.use(express.json());
 app.use(session({ secret: 'your-secret', resave: false, saveUninitialized: true }));
-app.use(cors({ origin: 'http://localhost:3000'||"https://yubikeyfe.vercel.app/", credentials: true }));
+app.use(cors());
 
 // Hardcoded user
 const hardcodedUser = {

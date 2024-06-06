@@ -1,86 +1,90 @@
 const express = require('express');
-const session = require('express-session');
 const u2f = require('u2f');
 const cors = require('cors');
+const bodyParser = require('body-parser');
 
 const app = express();
-const APP_ID = 'https://yubikeyfe.vercel.app/'; // Replace with your HTTPS URL
+const APP_ID = 'https://yubikeyfe.vercel.app'; // Your frontend URL
 
-app.use(express.json());
-app.use(session({ secret: 'your-secret', resave: false, saveUninitialized: true }));
-app.use(cors({
-    origin: 'https://yubikeyfe.vercel.app',
-    credentials: true
-  }));
+app.use(cors());
+app.use(bodyParser.json());
 
-// Hardcoded user
-const hardcodedUser = {
-  username: 'g',
-  password: '123', // Never hardcode passwords in production, use environment variables or secure storage
-  keys: [],
-};
+// In-memory user store (replace with a database in production)
+const users = {};
 
-app.post('/login', (req, res) => {
-  const { username, password } = req.body;
-  if (username === hardcodedUser.username && password === hardcodedUser.password) {
-    req.session.username = username;
-    return res.sendStatus(200);
-  }
-  return res.sendStatus(401);
-});
-
-app.post('/registration-challenge', (req, res) => {
-  if (!req.session.username) {
-    return res.status(401).send('User not logged in');
+app.post('/register', (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
   }
 
   const registrationRequest = u2f.request(APP_ID);
-  req.session.registrationRequest = registrationRequest;
+  users[email] = { registrationRequest, keys: [] };
   return res.json(registrationRequest);
 });
 
-app.post('/registration-verify', (req, res) => {
-  const result = u2f.checkRegistration(req.session.registrationRequest, req.body.registrationResponse);
+app.post('/register/verify', (req, res) => {
+  const { email, registrationResponse } = req.body;
+  if (!email || !registrationResponse) {
+    return res.status(400).json({ error: 'Email and registration response are required' });
+  }
 
+  const user = users[email];
+  if (!user) {
+    return res.status(400).json({ error: 'User not found' });
+  }
+
+  const result = u2f.checkRegistration(user.registrationRequest, registrationResponse);
   if (result.successful) {
-    hardcodedUser.keys.push({
+    user.keys.push({
       publicKey: result.publicKey,
       keyHandle: result.keyHandle,
     });
-    return res.sendStatus(200);
+    return res.json({ message: 'Registration successful' });
   }
 
-  return res.status(400).json(result);
+  return res.status(400).json({ error: result.errorMessage });
 });
 
-app.post('/authentication-challenge', (req, res) => {
-  if (!req.session.username) {
-    return res.status(401).send('User not logged in');
+app.post('/authenticate', (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
   }
 
-  if (hardcodedUser.keys.length === 0) {
-    return res.status(400).send('No registered keys found for user');
+  const user = users[email];
+  if (!user || user.keys.length === 0) {
+    return res.status(400).json({ error: 'No registered keys found for user' });
   }
 
-  const keyHandles = hardcodedUser.keys.map(key => key.keyHandle);
+  const keyHandles = user.keys.map(key => key.keyHandle);
   const authRequest = u2f.request(APP_ID, keyHandles);
-  req.session.authRequest = authRequest;
+  users[email].authRequest = authRequest;
   return res.json(authRequest);
 });
 
-app.post('/authentication-verify', (req, res) => {
-  const key = hardcodedUser.keys.find(key => key.keyHandle === req.body.authResponse.keyHandle);
+app.post('/authenticate/verify', (req, res) => {
+  const { email, authResponse } = req.body;
+  if (!email || !authResponse) {
+    return res.status(400).json({ error: 'Email and authentication response are required' });
+  }
+
+  const user = users[email];
+  if (!user || !user.authRequest) {
+    return res.status(400).json({ error: 'Authentication request not found' });
+  }
+
+  const key = user.keys.find(key => key.keyHandle === authResponse.keyHandle);
   if (!key) {
-    return res.status(400).send('Key handle not found');
+    return res.status(400).json({ error: 'Key handle not found' });
   }
 
-  const result = u2f.checkSignature(req.session.authRequest, req.body.authResponse, key.publicKey);
-
+  const result = u2f.checkSignature(user.authRequest, authResponse, key.publicKey);
   if (result.successful) {
-    return res.sendStatus(200);
+    return res.json({ message: 'Authentication successful' });
   }
 
-  return res.status(400).json(result);
+  return res.status(400).json({ error: result.errorMessage });
 });
 
 app.listen(3001, () => {

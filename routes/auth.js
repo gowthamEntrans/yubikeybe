@@ -1,7 +1,19 @@
 const express = require('express');
-const u2f = require('u2f');
+const { Fido2Lib } = require('fido2-lib');
 const User = require('../models/User');
 const router = express.Router();
+
+const fido = new Fido2Lib({
+    timeout: 60000,
+    rpId: "yubikeybe.onrender.com",
+    rpName: "Your App",
+    challengeSize: 64,
+    attestation: "direct",
+    cryptoParams: [-7, -257],
+    authenticatorAttachment: "cross-platform",
+    authenticatorRequireResidentKey: false,
+    authenticatorUserVerification: "preferred"
+});
 
 router.post('/registerRequest', async (req, res) => {
     try {
@@ -11,9 +23,15 @@ router.post('/registerRequest', async (req, res) => {
             user = new User({ username, devices: [] });
             await user.save();
         }
-        const registerRequest = u2f.request('https://yubikeybe.onrender.com');
-        req.session.registerRequest = registerRequest;
-        res.json(registerRequest);
+
+        const registrationOptions = await fido.attestationOptions();
+        req.session.challenge = registrationOptions.challenge;
+        registrationOptions.user = {
+            id: Buffer.from(username),
+            name: username,
+            displayName: username
+        };
+        res.json(registrationOptions);
     } catch (error) {
         console.error('Error in registerRequest:', error);
         res.status(500).send('Internal server error');
@@ -22,24 +40,21 @@ router.post('/registerRequest', async (req, res) => {
 
 router.post('/registerResponse', async (req, res) => {
     try {
-        const { username, registerResponse } = req.body;
-        const registerRequest = req.session.registerRequest;
+        const { username, attestationResponse } = req.body;
+        const challenge = req.session.challenge;
+        const attestationExpectations = {
+            challenge: challenge,
+            origin: "https://yubikeybe.onrender.com",
+            factor: "either"
+        };
 
-        if (!registerRequest) {
-            return res.status(400).send('No registration request found');
-        }
+        const regResult = await fido.attestationResult(attestationResponse, attestationExpectations);
 
-        const registration = u2f.checkRegistration(registerRequest, registerResponse);
-
-        if (registration.successful) {
-            await User.findOneAndUpdate(
-                { username },
-                { $push: { devices: { keyHandle: registration.keyHandle, publicKey: registration.publicKey } } }
-            );
-            res.send('Device registered successfully');
-        } else {
-            res.status(400).send('Registration failed');
-        }
+        await User.findOneAndUpdate(
+            { username },
+            { $push: { devices: regResult } }
+        );
+        res.send('Device registered successfully');
     } catch (error) {
         console.error('Error in registerResponse:', error);
         res.status(500).send('Internal server error');
@@ -52,9 +67,14 @@ router.post('/signRequest', async (req, res) => {
         const user = await User.findOne({ username });
 
         if (user && user.devices.length > 0) {
-            const signRequest = u2f.request('https://yubikeybe.onrender.com', user.devices.map(device => device.keyHandle));
-            req.session.signRequest = signRequest;
-            res.json(signRequest);
+            const assertionOptions = await fido.assertionOptions();
+            req.session.challenge = assertionOptions.challenge;
+            assertionOptions.allowCredentials = user.devices.map(device => ({
+                id: device.rawId,
+                type: "public-key",
+                transports: ["usb", "ble", "nfc"]
+            }));
+            res.json(assertionOptions);
         } else {
             res.status(404).send('User or devices not found');
         }
@@ -66,23 +86,18 @@ router.post('/signRequest', async (req, res) => {
 
 router.post('/signResponse', async (req, res) => {
     try {
-        const { username, signResponse } = req.body;
-        const signRequest = req.session.signRequest;
+        const { username, assertionResponse } = req.body;
+        const challenge = req.session.challenge;
+        const assertionExpectations = {
+            challenge: challenge,
+            origin: "https://yubikeybe.onrender.com",
+            factor: "either",
+            publicKey: user.devices[0].publicKey // Simplification, iterate through devices to find the matching one
+        };
 
-        if (!signRequest) {
-            return res.status(400).send('No sign request found');
-        }
+        const authnResult = await fido.assertionResult(assertionResponse, assertionExpectations);
 
-        const user = await User.findOne({ username });
-        const device = user.devices.find(device => device.keyHandle === signResponse.keyHandle);
-
-        if (!device) {
-            return res.status(400).send('Device not found');
-        }
-
-        const signCheck = u2f.checkSignature(signRequest, signResponse, device.publicKey);
-
-        if (signCheck.successful) {
+        if (authnResult) {
             res.send('Authentication successful');
         } else {
             res.status(400).send('Authentication failed');

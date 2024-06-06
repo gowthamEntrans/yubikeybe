@@ -4,11 +4,11 @@ const u2f = require('u2f');
 const cors = require('cors');
 
 const app = express();
-const APP_ID = 'https://yubikeybe.onrender.com'; // Replace with your HTTPS URL
+const APP_ID = 'https://yubikeyfe.vercel.app/'; // Replace with your HTTPS URL
 
 app.use(express.json());
 app.use(session({ secret: 'your-secret', resave: false, saveUninitialized: true }));
-app.use(cors({ origin: 'http://localhost:3000'||"https://yubikeybe.onrender.com", credentials: true }));
+app.use(cors({ origin: 'http://localhost:3000'||"https://yubikeyfe.vercel.app/", credentials: true }));
 
 // Hardcoded user
 const hardcodedUser = {

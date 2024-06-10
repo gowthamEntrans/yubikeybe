@@ -66,8 +66,8 @@ const challenges = {};
 // const rpID = 'localhost';
 // const origin = `http://${rpID}:3000`;
 const rpName = 'SimpleWebAuthn Example';
-const rpID = '100.26.52.215';
-const origin = `http://${rpID}:3001`;
+const rpID = 'yubikey.infisign.net';
+const origin = `https://${rpID}`;
 
 app.post('/api/register-options', async (req, res) => {
   const { username } = req.body;

@@ -66,7 +66,7 @@ const challenges = {};
 // const rpID = 'localhost';
 // const origin = `http://${rpID}:3000`;
 const rpName = 'SimpleWebAuthn Example';
-const rpID = 'onrender.com';
+const rpID = 'yubikeybe.onrender.com';
 const origin = `https://yubikeybe.onrender.com`;
 
 app.post('/register-options', async (req, res) => {

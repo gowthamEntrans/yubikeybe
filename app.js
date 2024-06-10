@@ -69,7 +69,7 @@ const rpName = 'SimpleWebAuthn Example';
 const rpID = '100.26.52.215';
 const origin = `http://${rpID}:3001`;
 
-app.post('/register-options', async (req, res) => {
+app.post('/api/register-options', async (req, res) => {
   const { username } = req.body;
   if (!username) {
     return res.status(400).send({ message: 'Username is required' });
@@ -105,7 +105,7 @@ app.post('/register-options', async (req, res) => {
   }
 });
 
-app.post('/register', async (req, res) => {
+app.post('/api/register', async (req, res) => {
   const { username, attestationResponse } = req.body;
 
   if (!username || !attestationResponse) {
@@ -146,7 +146,7 @@ app.post('/register', async (req, res) => {
   }
 });
 
-app.post('/auth-options', async (req, res) => {
+app.post('/api/auth-options', async (req, res) => {
   const { username } = req.body;
 
   try {
@@ -175,7 +175,7 @@ app.post('/auth-options', async (req, res) => {
   }
 });
 
-app.post('/authenticate', async (req, res) => {
+app.post('/api/authenticate', async (req, res) => {
   console.log(req.body);
   const { username, assertionResponse } = req.body;
 

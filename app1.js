@@ -8,7 +8,7 @@ const {
   verifyRegistrationResponse,
   verifyAuthenticationResponse,
 } = require('@simplewebauthn/server');
-const { isoUint8Array } = require('@simplewebauthn/server/helpers');
+const { isoUint8Array,decodeBase64URL } = require('@simplewebauthn/server/helpers');
 const { Crypto } = require('@peculiar/webcrypto');
 
 if (!Promise.any) {
@@ -172,7 +172,7 @@ app.post('/auth-options', async (req, res) => {
 });
 
 app.post('/authenticate', async (req, res) => {
-  console.log(req.body)
+  console.log(req.body);
   const { username, assertionResponse } = req.body;
 
   if (!username || !assertionResponse) {
@@ -194,8 +194,17 @@ app.post('/authenticate', async (req, res) => {
 
     const expectedChallenge = challenges[username];
 
-    console.log("Assertion Response:", assertionResponse);
+    console.log("Assertion Response:", JSON.stringify(assertionResponse, null, 2));
     console.log("Expected Challenge:", expectedChallenge);
+
+    // Convert credentialPublicKey to Buffer if it's not already
+    let credentialPublicKey = credential.publicKey;
+    if (typeof credentialPublicKey !== 'string' && !Buffer.isBuffer(credentialPublicKey)) {
+      credentialPublicKey = Buffer.from(Object.values(credential.publicKey));
+    }
+
+    console.log("Credential Data:", JSON.stringify(credential, null, 2));
+    console.log("Converted Public Key Buffer:", credentialPublicKey);
 
     const verification = await verifyAuthenticationResponse({
       response: assertionResponse,
@@ -203,8 +212,8 @@ app.post('/authenticate', async (req, res) => {
       expectedOrigin: origin,
       expectedRPID: rpID,
       authenticator: {
-        credentialID: credential.credentialID,
-        credentialPublicKey: credential.publicKey,
+        credentialID: Buffer.from(credential.credentialID, 'base64'),
+        credentialPublicKey,
         counter: credential.counter,
       },
     });
@@ -224,3 +233,4 @@ app.post('/authenticate', async (req, res) => {
     res.status(500).send({ message: 'Error verifying assertion', error: error.message });
   }
 });
+
